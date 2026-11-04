@@ -72,6 +72,8 @@ services:
     ports: ["8080:8080"]
     environment:
       <<: *java-env
+      # Re-resolve service hostnames every 5s so a redeployed service's new IP is picked up.
+      JAVA_OPTS: "-Xms64m -Xmx256m -Dsun.net.inetaddr.ttl=5"
       PRODUCT_SERVICE_URL: http://product-service:8081
       INVENTORY_SERVICE_URL: http://inventory-service:8082
       ORDER_SERVICE_URL: http://order-service:8083

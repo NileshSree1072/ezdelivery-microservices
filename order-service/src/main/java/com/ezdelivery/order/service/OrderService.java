@@ -73,7 +73,7 @@ public class OrderService {
      */
     @Transactional
     public Optional<CustomerOrder> transition(UUID orderId, OrderStatus target, String reason) {
-        CustomerOrder order = orders.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+        CustomerOrder order = orders.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
         if (order.transitionTo(target, reason)) {
             log.info("Order {} -> {}{}", orderId, target, reason == null ? "" : " (" + reason + ")");
         } else if (order.getStatus() != target) {

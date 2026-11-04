@@ -111,6 +111,15 @@ The local mock payment provider declines charges above Rs. 10,000
 (`PAYMENT_MOCK_DECLINE_ABOVE`), which is an easy way to watch the compensation path:
 the order is cancelled and its reserved stock is returned.
 
+## Known limitations
+
+- **Dual write when placing an order.** The order service saves the order and then publishes
+  `order.created`. If the process crashes between those two steps, the order stays `PENDING`.
+  The standard fix is the **Transactional Outbox** pattern: write the event to an `outbox`
+  table in the same database transaction, and let a relay publish it to Kafka.
+- **Payments use a mock provider locally.** Stripe (test mode) plugs into the same
+  `PaymentGateway` interface when the Next.js checkout is connected.
+
 ## Roadmap
 
 - [x] Stage 1 – Multi-module project, API gateway, Docker Compose infrastructure, product catalog API

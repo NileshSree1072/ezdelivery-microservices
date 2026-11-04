@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.ezdelivery.payment.model.Payment;
 import com.ezdelivery.payment.service.PaymentService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
+@Tag(name = "Payments", description = "Payment results")
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {
@@ -23,6 +28,9 @@ public class PaymentController {
         this.service = service;
     }
 
+    @Operation(summary = "Get the payment for an order",
+            description = "Payments are created by the saga, never directly by clients.")
+    @ApiResponse(responseCode = "404", description = "Order has no payment (e.g. it was cancelled for lack of stock)")
     @GetMapping("/order/{orderId}")
     public ResponseEntity<PaymentResponse> byOrder(@PathVariable UUID orderId) {
         return ResponseEntity.of(service.findByOrder(orderId).map(PaymentResponse::from));

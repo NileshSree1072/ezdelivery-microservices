@@ -37,6 +37,46 @@ spring:
           predicates:
             - Path=/api/payments/**
 
+        # Each service's OpenAPI spec, exposed through the gateway for the combined Swagger UI.
+        - id: product-docs
+          uri: ${PRODUCT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/v3/api-docs/products
+          filters:
+            - SetPath=/v3/api-docs
+        - id: inventory-docs
+          uri: ${INVENTORY_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/v3/api-docs/inventory
+          filters:
+            - SetPath=/v3/api-docs
+        - id: order-docs
+          uri: ${ORDER_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/v3/api-docs/orders
+          filters:
+            - SetPath=/v3/api-docs
+        - id: payment-docs
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/v3/api-docs/payments
+          filters:
+            - SetPath=/v3/api-docs
+
+# One Swagger UI at http://localhost:8080/swagger-ui.html with a dropdown per service.
+springdoc:
+  swagger-ui:
+    urls-primary-name: Orders
+    urls:
+      - name: Orders
+        url: /v3/api-docs/orders
+      - name: Products
+        url: /v3/api-docs/products
+      - name: Inventory
+        url: /v3/api-docs/inventory
+      - name: Payments
+        url: /v3/api-docs/payments
+
 management:
   endpoints:
     web:

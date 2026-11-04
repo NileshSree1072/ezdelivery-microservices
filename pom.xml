@@ -33,6 +33,7 @@
         <spring-cloud.version>2023.0.3</spring-cloud.version>
         <!-- Boot 3.3 ships 1.19.8, which is too old for Docker Engine 29+ -->
         <testcontainers.version>1.21.4</testcontainers.version>
+        <springdoc.version>2.6.0</springdoc.version>
     </properties>
 
     <dependencyManagement>

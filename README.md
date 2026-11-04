@@ -6,7 +6,37 @@ Spring Boot microservices backend for the EzDelivery grocery storefront
 ([ezdelivery](https://github.com/NileshSree1072/ezdelivery)) and admin panel
 ([ezdeliveryadmin](https://github.com/NileshSree1072/ezdeliveryadmin)).
 
-> 🚧 Work in progress. Stages 1–4 are complete (see the roadmap below).
+> 🚧 Work in progress. Stages 1–5 are complete (see the roadmap below).
+
+**Tech stack:** Java 17 · Spring Boot 3.3 · Spring Cloud Gateway · Apache Kafka · PostgreSQL ·
+MongoDB · Redis · Flyway · Docker Compose · JUnit 5 · Testcontainers · GitHub Actions · OpenAPI/Swagger
+
+## Architecture
+
+```mermaid
+flowchart LR
+    client["Next.js storefront<br/>and admin panel"] -->|HTTP| gw["API Gateway<br/>routing + rate limiting"]
+    gw -.->|rate-limit counters| gwredis[("Redis")]
+    gw --> product["Product Service"]
+    gw --> order["Order Service"]
+    gw --> inventory["Inventory Service"]
+    gw --> payment["Payment Service"]
+    product --> mongo[("MongoDB")]
+    product -.->|cache| redis[("Redis")]
+    order -->|price lookup| product
+    order --> odb[("PostgreSQL<br/>order_db")]
+    inventory --> idb[("PostgreSQL<br/>inventory_db")]
+    payment --> pdb[("PostgreSQL<br/>payment_db")]
+    order <-->|events| kafka{{"Apache Kafka"}}
+    inventory <-->|events| kafka
+    payment <-->|events| kafka
+    kafka -->|order.completed| notification["Notification Service"]
+```
+
+Both Redis boxes are the same Redis instance, drawn twice for readability.
+Each service owns its data (database-per-service). Services talk synchronously only where an
+immediate answer is required (the order service looks up current prices); everything else
+flows through Kafka events.
 
 ## How an order works (Saga pattern over Kafka)
 
@@ -15,24 +45,40 @@ database transaction is impossible. Instead, each service does its local step an
 an event; the next service reacts to it (choreography). If a later step fails, earlier steps
 are undone by **compensating actions**.
 
-```
-POST /api/orders ──► order-service saves PENDING ──► order.created
-                                                          │
-                                                   inventory-service
-                                       ┌──────────────────┴──────────────────┐
-                              stock available                          not enough stock
-                       inventory.stock-reserved                   inventory.stock-rejected
-                                       │                                      │
-                               payment-service                        order CANCELLED
-                       ┌───────────────┴───────────────┐
-                 charge approved                 charge declined
-               payment.succeeded                 payment.failed
-                       │                               │
-        order CONFIRMED + stock committed    order CANCELLED + stock RELEASED (compensation)
-                       │                               │
-                       └──────────► order.completed ◄──┘
-                                          │
-                                 notification-service
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant O as Order Service
+    participant K as Kafka
+    participant I as Inventory Service
+    participant P as Payment Service
+    participant N as Notification Service
+
+    C->>O: POST /api/orders
+    O->>O: Save order as PENDING
+    O-->>C: 202 Accepted
+    O->>K: order.created
+    K->>I: order.created
+    alt Stock available
+        I->>I: Reserve stock with row locks
+        I->>K: inventory.stock-reserved
+        K->>P: inventory.stock-reserved
+        alt Charge approved
+            P->>K: payment.succeeded
+            K->>O: Mark order CONFIRMED
+            K->>I: Commit reserved stock
+        else Charge declined
+            P->>K: payment.failed
+            K->>I: Release reserved stock (compensation)
+            K->>O: Mark order CANCELLED
+        end
+    else Not enough stock
+        I->>K: inventory.stock-rejected
+        K->>O: Mark order CANCELLED
+    end
+    O->>K: order.completed
+    K->>N: Notify the customer
 ```
 
 **Reliability decisions**
@@ -74,6 +120,14 @@ Check that everything is up:
 ```bash
 curl http://localhost:8080/actuator/health
 ```
+
+## API documentation
+
+Interactive docs for every service are served through the gateway at
+**http://localhost:8080/swagger-ui.html**. Pick a service from the dropdown and use
+"Try it out" to send real requests through the gateway.
+
+![Swagger UI](docs/images/swagger-ui.png)
 
 ## API (via gateway, port 8080)
 
@@ -173,5 +227,5 @@ removed, it fails with an optimistic-locking conflict.
 - [x] Stage 2 – Kafka order saga with compensation, idempotent consumers, dead-letter topics and Flyway migrations
 - [x] Stage 3 – Redis caching and gateway rate limiting
 - [x] Stage 4 – Tests (JUnit, Testcontainers) and GitHub Actions CI
-- [ ] Stage 5 – Architecture diagram and API docs
+- [x] Stage 5 – Architecture diagrams and OpenAPI docs (combined Swagger UI on the gateway)
 - [ ] Stage 6 – k6 load testing

@@ -1,10 +1,12 @@
 # EzDelivery – Event-Driven Grocery Platform
 
+[![CI](https://github.com/NileshSree1072/ezdelivery-microservices/actions/workflows/ci.yml/badge.svg)](https://github.com/NileshSree1072/ezdelivery-microservices/actions/workflows/ci.yml)
+
 Spring Boot microservices backend for the EzDelivery grocery storefront
 ([ezdelivery](https://github.com/NileshSree1072/ezdelivery)) and admin panel
 ([ezdeliveryadmin](https://github.com/NileshSree1072/ezdeliveryadmin)).
 
-> 🚧 Work in progress. Stages 1–3 are complete (see the roadmap below).
+> 🚧 Work in progress. Stages 1–4 are complete (see the roadmap below).
 
 ## How an order works (Saga pattern over Kafka)
 
@@ -135,6 +137,27 @@ gateway instance shares the same counters: 20 requests/second with bursts up to 
 and every response carries `X-RateLimit-Remaining`. In a test burst of 100 requests,
 40 passed and 60 were rejected; the bucket refilled within 2 seconds.
 
+## Testing
+
+```bash
+./mvnw verify      # needs Docker running: integration tests start real containers
+```
+
+28 tests across the services. Integration tests use **Testcontainers** to start real
+PostgreSQL, MongoDB, Redis and Kafka, so they exercise the same Flyway schema, row locks
+and serialization that run in production. GitHub Actions runs the full suite on every push
+and pull request, then builds all Docker images.
+
+| Service | What is tested |
+|---|---|
+| `order-service` | Status rules (forward-only, final states), server-side pricing, `order.created` published, confirmation and cancellation driven by Kafka events, out-of-order events |
+| `inventory-service` | All-or-nothing reservation, duplicate events, compensation on payment failure, **20 concurrent buyers for 5 units sell exactly 5** |
+| `payment-service` | Charge once per order, declined payments, `UNIQUE(order_id)` enforced by the database |
+| `product-service` | Reads served from Redis, update refreshes the cache, delete and create evict correctly |
+
+The concurrency test is checked against a deliberately broken build: with the row lock
+removed, it fails with an optimistic-locking conflict.
+
 ## Known limitations
 
 - **Dual write when placing an order.** The order service saves the order and then publishes
@@ -149,6 +172,6 @@ and every response carries `X-RateLimit-Remaining`. In a test burst of 100 reque
 - [x] Stage 1 – Multi-module project, API gateway, Docker Compose infrastructure, product catalog API
 - [x] Stage 2 – Kafka order saga with compensation, idempotent consumers, dead-letter topics and Flyway migrations
 - [x] Stage 3 – Redis caching and gateway rate limiting
-- [ ] Stage 4 – Tests (JUnit, Testcontainers) and GitHub Actions CI
+- [x] Stage 4 – Tests (JUnit, Testcontainers) and GitHub Actions CI
 - [ ] Stage 5 – Architecture diagram and API docs
 - [ ] Stage 6 – k6 load testing

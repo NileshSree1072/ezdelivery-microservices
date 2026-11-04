@@ -6,7 +6,7 @@ Spring Boot microservices backend for the EzDelivery grocery storefront
 ([ezdelivery](https://github.com/NileshSree1072/ezdelivery)) and admin panel
 ([ezdeliveryadmin](https://github.com/NileshSree1072/ezdeliveryadmin)).
 
-> 🚧 Work in progress. Stages 1–5 are complete (see the roadmap below).
+> All six roadmap stages are complete. Next step: connecting the Next.js storefront and Stripe test mode.
 
 **Tech stack:** Java 17 · Spring Boot 3.3 · Spring Cloud Gateway · Apache Kafka · PostgreSQL ·
 MongoDB · Redis · Flyway · Docker Compose · JUnit 5 · Testcontainers · GitHub Actions · OpenAPI/Swagger
@@ -87,7 +87,7 @@ sequenceDiagram
 |---|---|
 | Kafka can deliver the same event twice | Every consumer is idempotent: `UNIQUE(order_id)` on reservations and payments, and redelivered events reuse the stored result instead of acting again |
 | Two orders racing for the last unit | `SELECT ... FOR UPDATE` row locks on inventory, taken in a fixed order to avoid deadlocks |
-| Events for one order arriving out of order | Order status only moves forward (`PENDING → STOCK_RESERVED → CONFIRMED/CANCELLED`); late or stale events are ignored, and `@Version` optimistic locking stops concurrent overwrites |
+| Events for one order arriving out of order | Order status only moves forward (`PENDING → STOCK_RESERVED → CONFIRMED/CANCELLED`); late or stale events are ignored. A row lock serializes concurrent events for the same order, with `@Version` as a safety net |
 | A message that keeps failing | Retried 3 times, then moved to a `<topic>.DLT` dead-letter topic so it cannot block the partition |
 | Ordering per order | Every event is keyed by `orderId`, so all events for one order go to the same partition |
 | Client tampering with prices | The order service fetches the current price from the product service; the client only sends product IDs and quantities |
@@ -212,6 +212,46 @@ and pull request, then builds all Docker images.
 The concurrency test is checked against a deliberately broken build: with the row lock
 removed, it fails with an optimistic-locking conflict.
 
+## Load testing (k6)
+
+[`loadtest/order-flow.js`](loadtest/order-flow.js) simulates shoppers: 80% browse products
+(`GET /api/products/{id}`) and 20% place two-item orders (`POST /api/orders`), at a constant
+arrival rate. After each run, every order from that run is checked in the database until it
+reaches a final status, which measures the **whole saga**, not just the HTTP reply.
+
+```bash
+# Raise the gateway limit: all k6 traffic comes from one IP and would otherwise get 429s
+RATE_LIMIT_PER_SECOND=100000 RATE_LIMIT_BURST=100000 docker compose up -d api-gateway
+docker run --rm -i --network ezdelivery_default grafana/k6:0.54.0 run \
+  -e BROWSE_RPS=200 -e ORDER_RPS=50 -e DURATION=60s - < loadtest/order-flow.js
+docker compose up -d api-gateway   # restore the normal limit
+```
+
+**Results** (60 s per run, warm JVMs; everything — Kafka, PostgreSQL, MongoDB, Redis, six
+services and k6 — on one Windows laptop, 8 CPUs, ~7 GB RAM for Docker):
+
+| Load | Orders/s | HTTP errors | `POST /api/orders` p95 | `GET product` p95 | Orders confirmed | Saga p95 (placed → final) |
+|---|---|---|---|---|---|---|
+| 150 req/s | 30 | 0% | 23 ms | 7 ms | 1,801 / 1,801 | 34 ms |
+| 250 req/s | 50 | 0% | 35 ms | 12 ms | 3,001 / 3,001 | 51 ms |
+| 400 req/s | 80 | 0% | 128 ms | 68 ms | 4,792 / 4,792 | 181 ms |
+
+After all runs, units sold in confirmed orders matched units committed in inventory exactly,
+no stock was left reserved, and every dead-letter topic was empty. 400 req/s is the highest
+rate tested, not the ceiling.
+
+**What load testing found and fixed**
+
+1. **Gateway kept a stale IP.** After a service was redeployed onto a new container IP, the
+   gateway's Netty DNS cache kept the old address, so 100% of orders failed with
+   "connection refused". Fixed by using the JVM resolver with a 5-second TTL; verified by
+   forcing the order service onto a new IP while the gateway kept running.
+2. **Saga stalls of about 1 second.** Events for one order arrive on different topics and
+   threads; optimistic-lock conflicts were retried after a 1 s back-off (worst saga time
+   1,097 ms). The order service now takes a row lock when applying an event: 0 conflicts and
+   a worst case of about 160 ms at 150 req/s. Kafka consumers also run one thread per
+   partition instead of one per topic.
+
 ## Known limitations
 
 - **Dual write when placing an order.** The order service saves the order and then publishes
@@ -228,4 +268,4 @@ removed, it fails with an optimistic-locking conflict.
 - [x] Stage 3 – Redis caching and gateway rate limiting
 - [x] Stage 4 – Tests (JUnit, Testcontainers) and GitHub Actions CI
 - [x] Stage 5 – Architecture diagrams and OpenAPI docs (combined Swagger UI on the gateway)
-- [ ] Stage 6 – k6 load testing
+- [x] Stage 6 – k6 load testing, plus fixes for the two issues it found

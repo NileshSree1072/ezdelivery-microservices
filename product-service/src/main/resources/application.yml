@@ -7,6 +7,11 @@ spring:
   data:
     mongodb:
       uri: mongodb://localhost:27017/ezdelivery
+    redis:
+      host: localhost
+      port: 6379
+  cache:
+    type: redis
 
 management:
   endpoints:
@@ -16,3 +21,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+cache:
+  ttl:
+    product: ${CACHE_TTL_PRODUCT:10m}
+    product-list: ${CACHE_TTL_PRODUCT_LIST:2m}

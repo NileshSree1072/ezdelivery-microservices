@@ -76,7 +76,15 @@ services:
       INVENTORY_SERVICE_URL: http://inventory-service:8082
       ORDER_SERVICE_URL: http://order-service:8083
       PAYMENT_SERVICE_URL: http://payment-service:8084
-    depends_on: [product-service, inventory-service, order-service, payment-service]
+      SPRING_DATA_REDIS_HOST: redis
+      RATE_LIMIT_PER_SECOND: ${RATE_LIMIT_PER_SECOND:-20}
+      RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-40}
+    depends_on:
+      redis: {condition: service_healthy}
+      product-service: {condition: service_started}
+      inventory-service: {condition: service_started}
+      order-service: {condition: service_started}
+      payment-service: {condition: service_started}
 
   product-service:
     <<: *java-service
@@ -85,8 +93,12 @@ services:
     environment:
       <<: *java-env
       SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/ezdelivery
+      SPRING_DATA_REDIS_HOST: redis
+      # Set PRODUCT_CACHE_TYPE=none to switch the cache off (useful for benchmarks).
+      SPRING_CACHE_TYPE: ${PRODUCT_CACHE_TYPE:-redis}
     depends_on:
       mongodb: {condition: service_healthy}
+      redis: {condition: service_healthy}
 
   inventory-service:
     <<: *java-service

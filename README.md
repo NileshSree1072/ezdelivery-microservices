@@ -4,7 +4,7 @@ Spring Boot microservices backend for the EzDelivery grocery storefront
 ([ezdelivery](https://github.com/NileshSree1072/ezdelivery)) and admin panel
 ([ezdeliveryadmin](https://github.com/NileshSree1072/ezdeliveryadmin)).
 
-> 🚧 Work in progress. Stages 1–2 are complete (see the roadmap below).
+> 🚧 Work in progress. Stages 1–3 are complete (see the roadmap below).
 
 ## How an order works (Saga pattern over Kafka)
 
@@ -48,8 +48,8 @@ POST /api/orders ──► order-service saves PENDING ──► order.created
 
 | Service | Port | Responsibility | Storage |
 |---|---|---|---|
-| `api-gateway` | 8080 | Single entry point, request routing | – |
-| `product-service` | 8081 | Product catalog | MongoDB |
+| `api-gateway` | 8080 | Single entry point, routing, rate limiting | Redis |
+| `product-service` | 8081 | Product catalog | MongoDB + Redis cache |
 | `inventory-service` | 8082 | Stock levels and reservations | PostgreSQL (`inventory_db`) |
 | `order-service` | 8083 | Order lifecycle | PostgreSQL (`order_db`) |
 | `payment-service` | 8084 | Stripe payments | PostgreSQL (`payment_db`) |
@@ -111,6 +111,30 @@ The local mock payment provider declines charges above Rs. 10,000
 (`PAYMENT_MOCK_DECLINE_ABOVE`), which is an easy way to watch the compensation path:
 the order is cancelled and its reserved stock is returned.
 
+## Caching and rate limiting (Redis)
+
+**Product cache (cache-aside).** `GET /api/products/{id}` and product lists are served from
+Redis, falling back to MongoDB on a miss. Updates refresh the cached product (`@CachePut`),
+and creates/updates/deletes evict cached lists, so a price change is visible immediately.
+Entries expire after 10 minutes (lists after 2) as a safety net. If Redis goes down, reads fall
+back to MongoDB instead of failing.
+
+Measured with 1,000 reads of 20 popular products from 10 concurrent clients:
+
+| | MongoDB queries | Median latency |
+|---|---|---|
+| Cache off (`PRODUCT_CACHE_TYPE=none`) | 1,000 | 23.6 ms |
+| Cache on | **0** | 23.6 ms |
+
+The cache removes all repeat reads from the database. Latency is unchanged in this local setup
+because most of each request is Docker networking on the host; the gain is database capacity.
+
+**Rate limiting.** The gateway applies a token bucket per client IP, stored in Redis so every
+gateway instance shares the same counters: 20 requests/second with bursts up to 40
+(`RATE_LIMIT_PER_SECOND`, `RATE_LIMIT_BURST`). Extra requests get `429 Too Many Requests`,
+and every response carries `X-RateLimit-Remaining`. In a test burst of 100 requests,
+40 passed and 60 were rejected; the bucket refilled within 2 seconds.
+
 ## Known limitations
 
 - **Dual write when placing an order.** The order service saves the order and then publishes
@@ -124,7 +148,7 @@ the order is cancelled and its reserved stock is returned.
 
 - [x] Stage 1 – Multi-module project, API gateway, Docker Compose infrastructure, product catalog API
 - [x] Stage 2 – Kafka order saga with compensation, idempotent consumers, dead-letter topics and Flyway migrations
-- [ ] Stage 3 – Redis caching and gateway rate limiting
+- [x] Stage 3 – Redis caching and gateway rate limiting
 - [ ] Stage 4 – Tests (JUnit, Testcontainers) and GitHub Actions CI
 - [ ] Stage 5 – Architecture diagram and API docs
 - [ ] Stage 6 – k6 load testing

@@ -19,6 +19,7 @@
     <description>Event-driven grocery ordering platform built with Spring Boot microservices</description>
 
     <modules>
+        <module>common</module>
         <module>api-gateway</module>
         <module>product-service</module>
         <module>inventory-service</module>

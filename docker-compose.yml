@@ -110,9 +110,11 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-ezdelivery}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-ezdelivery}
+      PRODUCT_SERVICE_URL: http://product-service:8081
     depends_on:
       postgres: {condition: service_healthy}
       kafka: {condition: service_healthy}
+      product-service: {condition: service_started}
 
   payment-service:
     <<: *java-service
